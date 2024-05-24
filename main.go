@@ -47,15 +47,30 @@ func NewEchoHandler(
 	}
 }
 
+// Route is an http.Handler that knows the mux pattern
+// under which it will be registered.
+type Route interface {
+	http.Handler
+
+	// Pattern reports the path at which this is registered.
+	Pattern() string
+}
+
 func (e *EchoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, r.Body); err != nil {
 		e.log.Warn("Failed to handle request: ", zap.Error(err))
 	}
 }
 
-func NewServeMux(ec *EchoHandler) *http.ServeMux {
+func (e *EchoHandler) Pattern() string {
+	return "/echo"
+}
+
+// NewServeMux builds a ServeMux that will route requests
+// to the given Route.
+func NewServeMux(route Route) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("/echo", ec)
+	mux.Handle(route.Pattern(), route)
 	return mux
 }
 
@@ -66,8 +81,11 @@ func main() {
 		}),
 		fx.Provide(
 			NewHTTPServer,
-			NewEchoHandler,
 			NewServeMux,
+			fx.Annotate(
+				NewEchoHandler,
+				fx.As(new(Route)), //cast its result to that interface
+			),
 			zap.NewExample, // in production should use zap.NewProduction
 		), // provide: register function
 
