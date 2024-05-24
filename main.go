@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -66,11 +67,44 @@ func (e *EchoHandler) Pattern() string {
 	return "/echo"
 }
 
+type HelloHandler struct {
+	log *zap.Logger
+}
+
+func NewHelloHandler(
+	log *zap.Logger,
+) *HelloHandler {
+	return &HelloHandler{
+		log: log,
+	}
+}
+
+func (h *HelloHandler) Pattern() string {
+	return "/hello"
+}
+
+func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.log.Error("failed to read request", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusBadRequest)
+		return
+	}
+
+	_, err = fmt.Fprintf(w, "hello, %s\n", body)
+	if err != nil {
+		h.log.Error("failed to write response", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusBadRequest)
+		return
+	}
+}
+
 // NewServeMux builds a ServeMux that will route requests
 // to the given Route.
-func NewServeMux(route Route) *http.ServeMux {
+func NewServeMux(route1, route2 Route) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle(route.Pattern(), route)
+	mux.Handle(route1.Pattern(), route1)
+	mux.Handle(route2.Pattern(), route2)
 	return mux
 }
 
@@ -81,10 +115,19 @@ func main() {
 		}),
 		fx.Provide(
 			NewHTTPServer,
-			NewServeMux,
+			fx.Annotate(
+				NewServeMux,
+				fx.ParamTags(`name:"echo"`, `name:"hello"`),
+			),
 			fx.Annotate(
 				NewEchoHandler,
 				fx.As(new(Route)), //cast its result to that interface
+				fx.ResultTags(`name:"echo"`),
+			),
+			fx.Annotate(
+				NewHelloHandler,
+				fx.As(new(Route)),
+				fx.ResultTags(`name:"hello"`),
 			),
 			zap.NewExample, // in production should use zap.NewProduction
 		), // provide: register function
